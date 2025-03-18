@@ -49,6 +49,23 @@ def get_or_create_user(username, password=None, is_admin=False):
     user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
     return {"id": user[0], "username": user[1], "is_admin": bool(user[3])}
 
+def register_user(username, password):
+    existing_user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    if existing_user:
+        return False
+    conn.execute(
+        "INSERT INTO users (username, password) VALUES (?, ?)",
+        (username, password))
+    conn.commit()
+    return True
+
+def authenticate_user(username, password):
+    user = conn.execute(
+        "SELECT * FROM users WHERE username = ? AND password = ?", 
+        (username, password)).fetchone()
+    return {"id": user[0], "username": user[1]} if user else None
+
+
 def create_campaign(user_id, campaign_name, character_info, campaign_info):
     context = json.dumps({"history": []})
     conn.execute("""
