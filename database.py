@@ -112,3 +112,7 @@ def update_game_session(session_id, context_json):
         (context_json, session_id)
     )
     conn.commit()
+
+def get_all_users():
+    users = conn.execute("SELECT id, username FROM users").fetchall()
+    return users

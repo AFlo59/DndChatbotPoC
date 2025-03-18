@@ -104,9 +104,37 @@ def chat_page():
         st.session_state.page = "menu"
         st.rerun()
 
-# Contrôle clair de la navigation des pages
+def admin_page():
+    st.sidebar.success("🛡️ Administration")
+
+    st.header("🗃️ Admin Dashboard")
+
+    users = db.get_all_users()
+    selected_user = st.sidebar.selectbox("Voir les requêtes de l'utilisateur :", [u[1] for u in users])
+    
+    user_info = next(u for u in users if u[1] == selected_user)
+    user_campaigns = db.get_user_campaigns(user_info[0])
+
+    selected_campaign = st.sidebar.selectbox("Campagnes de l'utilisateur :", [c[1] for c in user_campaigns])
+    campaign_info = next(c for c in user_campaigns if c[1] == selected_campaign)
+
+    campaign_data = db.get_campaign(campaign_info[0])
+    session_context = json.loads(campaign_data[5])
+
+    st.subheader(f"Historique complet de '{selected_campaign}'")
+    for turn in session_context["history"]:
+        st.markdown(f"- **{turn['player']}** ➡️ {turn['dm']}")
+
+    if st.sidebar.button("Retour au menu"):
+        st.session_state.page = "menu"
+        st.rerun()
+
+
+# Modification de ta gestion de navigation claire et précise
 if not st.session_state.authenticated:
     login_page()
+elif st.session_state.user['username'] == "adminuser":
+    admin_page()
 elif st.session_state.page == "menu":
     menu_page()
 elif st.session_state.page == "chat":
