@@ -1,0 +1,30 @@
+services:
+  database:
+    build: ./database
+    env_file:
+      - .env
+    volumes:
+      - ./database/dnd_game.db:/app/dnd_game.db
+    restart: always
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - database
+    restart: always
+
+  webapp:
+    build: ./webapp
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    restart: always
