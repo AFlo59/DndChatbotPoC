@@ -2,6 +2,7 @@
 import sqlite3
 import os
 from dotenv import load_dotenv
+import hashlib
 
 # Charge `.env` à partir de la racine
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -23,8 +24,8 @@ cursor = conn.cursor()
 cursor.executescript("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
     is_admin BOOLEAN DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -89,6 +90,16 @@ if not admin_user:
     cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
                    (ADMIN_USERNAME, ADMIN_PASSWORD, 1))
     print(f"Superuser '{ADMIN_USERNAME}' ajouté avec succès.")
+
+# Insertion de l'utilisateur test si non existant
+cursor.execute("SELECT * FROM users WHERE username = ?", (os.getenv("USER_USERNAME"),))
+test_user = cursor.fetchone()
+
+if not test_user:
+    cursor.execute(
+        "INSERT INTO users (username, password) VALUES (?, ?)",
+        (os.getenv("USER_USERNAME"), hashlib.sha256(os.getenv("USER_PASSWORD").encode()).hexdigest())
+    )
 
 # Si la base de données vient d'être créée, ajouter des données d'exemple
 if not os.path.exists(db_path):

@@ -1,11 +1,16 @@
 # api/main.py
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import sqlite3
 import uuid
 from typing import List, Dict, Any, Optional
 import os
 import sys
+import hashlib
+from datetime import datetime
+from contextlib import contextmanager
+import threading
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer depuis common
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,13 +42,38 @@ except ValueError as e:
     print("Les fonctionnalités OpenAI ne seront pas disponibles.")
 
 # Fonction pour obtenir une connexion à la base de données
+@contextmanager
 def get_db():
-    conn = sqlite3.connect("/data/dnd_game.db")
+    """Crée une nouvelle connexion pour chaque requête"""
+    conn = sqlite3.connect("/data/dnd_game.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
         conn.close()
+
+# Modèles Pydantic pour l'authentification
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    is_admin: bool
+    created_at: datetime
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    session_id: str
+    role: str
+    content: str
+    timestamp: datetime
+    username: Optional[str]
 
 @app.get("/")
 def read_root():
@@ -205,6 +235,153 @@ def generate_scenario(context: Dict[str, Any]):
         return {"scenario": scenario}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la génération: {str(e)}")
+
+# Fonction utilitaire pour hacher les mots de passe
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+@app.post("/register")
+async def register(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
+    hashed_password = hash_password(user.password)
+    cursor = db.cursor()
+    
+    try:
+        cursor.execute(
+            "INSERT INTO users (username, password) VALUES (?, ?)",
+            (user.username, hashed_password)
+        )
+        db.commit()
+        
+        # Récupérer l'utilisateur créé
+        cursor.execute(
+            "SELECT id, username, is_admin FROM users WHERE username = ?",
+            (user.username,)
+        )
+        user_data = cursor.fetchone()
+        return {
+            "id": user_data[0],
+            "username": user_data[1],
+            "is_admin": bool(user_data[2])
+        }
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Nom d'utilisateur déjà pris")
+
+@app.post("/authenticate")
+async def login(user: UserLogin):
+    hashed_password = hash_password(user.password)
+    
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute(
+            "SELECT id, username, is_admin FROM users WHERE username = ? AND password = ?",
+            (user.username, hashed_password)
+        )
+        user_data = cursor.fetchone()
+    
+    if user_data is None:
+        raise HTTPException(status_code=401, detail="Identifiants invalides")
+    
+    return {
+        "id": user_data[0],
+        "username": user_data[1],
+        "is_admin": bool(user_data[2])
+    }
+
+@app.get("/admin/users", response_model=List[UserResponse])
+async def get_users(db: sqlite3.Connection = Depends(get_db)):
+    """Liste tous les utilisateurs (admin uniquement)"""
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT id, username, is_admin, created_at 
+        FROM users
+        ORDER BY created_at DESC
+    """)
+    users = [dict(row) for row in cursor.fetchall()]
+    return users
+
+@app.get("/admin/chat-history", response_model=List[ChatMessageResponse])
+async def get_all_chat_history(
+    db: sqlite3.Connection = Depends(get_db),
+    limit: int = 100,
+    offset: int = 0
+):
+    """Récupère l'historique complet des chats (admin uniquement)"""
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT 
+            cm.id,
+            cm.session_id,
+            cm.role,
+            cm.content,
+            cm.timestamp,
+            u.username
+        FROM chat_messages cm
+        LEFT JOIN chat_sessions cs ON cm.session_id = cs.id
+        LEFT JOIN characters c ON cs.character_id = c.id
+        LEFT JOIN users u ON u.id = c.id
+        ORDER BY cm.timestamp DESC
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
+    
+    messages = [dict(row) for row in cursor.fetchall()]
+    return messages
+
+@app.get("/admin/stats")
+async def get_stats(db: sqlite3.Connection = Depends(get_db)):
+    """Récupère les statistiques globales (admin uniquement)"""
+    cursor = db.cursor()
+    
+    # Nombre total d'utilisateurs
+    cursor.execute("SELECT COUNT(*) as user_count FROM users")
+    user_count = cursor.fetchone()['user_count']
+    
+    # Nombre total de personnages
+    cursor.execute("SELECT COUNT(*) as character_count FROM characters")
+    character_count = cursor.fetchone()['character_count']
+    
+    # Nombre total de messages
+    cursor.execute("SELECT COUNT(*) as message_count FROM chat_messages")
+    message_count = cursor.fetchone()['message_count']
+    
+    # Messages par jour (7 derniers jours)
+    cursor.execute("""
+        SELECT DATE(timestamp) as date, COUNT(*) as count
+        FROM chat_messages
+        WHERE timestamp >= DATE('now', '-7 days')
+        GROUP BY DATE(timestamp)
+        ORDER BY date DESC
+    """)
+    daily_messages = [dict(row) for row in cursor.fetchall()]
+    
+    return {
+        "total_users": user_count,
+        "total_characters": character_count,
+        "total_messages": message_count,
+        "daily_messages": daily_messages
+    }
+
+# Middleware pour vérifier les droits admin
+def admin_required(db: sqlite3.Connection = Depends(get_db)):
+    async def check_admin(request):
+        auth = request.headers.get("Authorization")
+        if not auth:
+            raise HTTPException(status_code=401, detail="Non authentifié")
+        
+        try:
+            # Format attendu: "Bearer user_id"
+            user_id = int(auth.split(" ")[1])
+            cursor = db.cursor()
+            cursor.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,))
+            user = cursor.fetchone()
+            
+            if not user or not user['is_admin']:
+                raise HTTPException(status_code=403, detail="Accès non autorisé")
+            
+            return user_id
+        except (IndexError, ValueError):
+            raise HTTPException(status_code=401, detail="Token invalide")
+    
+    return check_admin
 
 if __name__ == "__main__":
     import uvicorn

@@ -6,14 +6,17 @@ import uuid
 import os
 import sys
 from datetime import datetime
+import pandas as pd
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer depuis common
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common.database_api import DatabaseClient
 
+# Utiliser le nom du service Docker au lieu de localhost
+API_URL = os.getenv("API_URL", "http://api:8000")  # Le service s'appelle 'api' dans docker-compose
+
 # Initialisation du client pour l'API
-api_url = os.getenv("API_URL", "http://api:8000")
-db_client = DatabaseClient(api_url)
+db_client = DatabaseClient(API_URL)
 
 # Configuration de la page Streamlit
 st.set_page_config(
@@ -213,3 +216,111 @@ else:
                 st.session_state.messages = db_client.get_chat_history(st.session_state.session_id)
         except Exception as e:
             st.error(f"Erreur lors de l'envoi du message: {e}")
+
+def login_page():
+    auth_action = st.sidebar.radio("Accès au jeu", ["Connexion", "Inscription"])
+
+    username = st.sidebar.text_input("Nom d'utilisateur")
+    password = st.sidebar.text_input("Mot de passe", type="password")
+
+    if st.sidebar.button(auth_action):
+        try:
+            endpoint = "authenticate" if auth_action == "Connexion" else "register"
+            
+            # Utiliser le bon endpoint
+            res = requests.post(
+                f"{API_URL}/{endpoint}",
+                json={"username": username, "password": password},
+                timeout=10  # Ajouter un timeout
+            )
+            
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("id"):
+                    st.session_state.user = data
+                    st.session_state.page = "menu"
+                    st.rerun()
+                else:
+                    st.sidebar.error("Échec de l'authentification")
+            else:
+                st.sidebar.error(f"Erreur {res.status_code}: {res.text}")
+        except requests.exceptions.RequestException as e:
+            st.sidebar.error(f"Erreur de connexion: {str(e)}")
+            st.sidebar.info(f"Tentative de connexion à {API_URL}")
+
+def admin_page():
+    st.title("🛡️ Panel Administrateur")
+    
+    # Vérifier que l'utilisateur est admin
+    if not st.session_state.user.get('is_admin'):
+        st.error("Accès non autorisé")
+        return
+    
+    # Tabs pour différentes sections
+    tab1, tab2, tab3 = st.tabs(["Utilisateurs", "Historique des chats", "Statistiques"])
+    
+    with tab1:
+        st.header("Liste des utilisateurs")
+        try:
+            headers = {"Authorization": f"Bearer {st.session_state.user['id']}"}
+            response = requests.get(f"{API_URL}/admin/users", headers=headers)
+            users = response.json()
+            
+            # Afficher les utilisateurs dans un tableau
+            if users:
+                df = pd.DataFrame(users)
+                st.dataframe(df)
+            else:
+                st.info("Aucun utilisateur trouvé")
+        except Exception as e:
+            st.error(f"Erreur lors de la récupération des utilisateurs: {e}")
+    
+    with tab2:
+        st.header("Historique des chats")
+        try:
+            headers = {"Authorization": f"Bearer {st.session_state.user['id']}"}
+            response = requests.get(f"{API_URL}/admin/chat-history", headers=headers)
+            messages = response.json()
+            
+            if messages:
+                df = pd.DataFrame(messages)
+                st.dataframe(df)
+            else:
+                st.info("Aucun message trouvé")
+        except Exception as e:
+            st.error(f"Erreur lors de la récupération de l'historique: {e}")
+    
+    with tab3:
+        st.header("Statistiques globales")
+        try:
+            headers = {"Authorization": f"Bearer {st.session_state.user['id']}"}
+            response = requests.get(f"{API_URL}/admin/stats", headers=headers)
+            stats = response.json()
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Utilisateurs", stats['total_users'])
+            with col2:
+                st.metric("Personnages", stats['total_characters'])
+            with col3:
+                st.metric("Messages", stats['total_messages'])
+            
+            # Graphique des messages par jour
+            if stats['daily_messages']:
+                df = pd.DataFrame(stats['daily_messages'])
+                st.line_chart(df.set_index('date')['count'])
+            
+        except Exception as e:
+            st.error(f"Erreur lors de la récupération des statistiques: {e}")
+
+if "user" not in st.session_state:
+    login_page()
+elif st.session_state.user.get('is_admin'):
+    # Ajouter un sélecteur de page pour les admins
+    page = st.sidebar.selectbox("Navigation", ["Panel Admin", "Chat"])
+    if page == "Panel Admin":
+        admin_page()
+    else:
+        chat_page()
+else:
+    chat_page()

@@ -36,7 +36,7 @@ services:
   webapp:
     build: ./webapp
     ports:
-      - "8502:8501"
+      - "8502:8502"
     volumes:
       - ./common:/app/common
     depends_on:
@@ -44,6 +44,8 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    environment:
+      - API_URL=http://api:8000
 
   sqlite-web:
     image: coleifer/sqlite-web
