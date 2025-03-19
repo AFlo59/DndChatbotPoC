@@ -1,6 +1,7 @@
+# api/main.py
 from fastapi import FastAPI, HTTPException
-from webapp.database_api import authenticate_user, register_user, create_campaign, get_campaign, update_campaign_context, get_all_campaign_logs
-from webapp.openai_api import generate_game_prompt, get_gpt_response
+from common.database_api import authenticate_user, register_user, create_campaign, get_campaign, update_campaign_context, get_all_campaign_logs
+from common.openai_api import generate_game_prompt, get_gpt_response
 import json
 import os
 from dotenv import load_dotenv

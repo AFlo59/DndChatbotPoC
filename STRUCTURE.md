@@ -1,20 +1,21 @@
 DndChatbotPoC/
-├── docker-compose.yml           # orchestration Docker
-├── database/                    # Base SQLite Dockerisée
-│   ├── dnd_game.db              # ta base SQLite
-│   ├── Dockerfile               # Dockerfile pour exécuter SQLite
-│   ├── init_db.py               # Script de création et initialisation de la DB  ✅
+├── docker-compose.yml         # Orchestration de vos services
+├── .env                       # Variables d'environnement (ne pas commiter)
+├── common/                    # Code partagé entre l'API et la webapp
+│   ├── database_api.py        # Client pour communiquer avec l'API REST
+│   └── openai_api.py          # Fonctions pour interagir avec OpenAI
 │
-├── api/                         # API intermédiaire (FastAPI)
-│   ├── Dockerfile
-│   ├── main.py                  # API REST claire
-│   └── requirements.txt         # dépendances (FastAPI, uvicorn, SQLite, python-dotenv, openai)
+├── database/                  # Service de base de données (SQLite)
+│   ├── Dockerfile             # Dockerfile pour initialiser la DB
+│   ├── init_db.py             # Script de création/initialisation de la DB
+│   └── dnd_game.db            # (Optionnel : la base SQLite générée)
 │
-├── webapp/
-│   ├── Dockerfile
-│   ├── app.py                   # app Streamlit avec UI admin et user
-│   ├── openai_api.py
-│   ├── database_api.py          # Client pour l'API REST
-│   └── requirements.txt         # streamlit, requests, openai, python-dotenv
+├── api/                       # Service API (FastAPI)
+│   ├── Dockerfile             # Dockerfile pour l'API
+│   ├── main.py                # Application FastAPI (modifiée pour importer depuis common)
+│   └── requirements.txt       # Dépendances (fastapi, uvicorn, python-dotenv, openai, …)
 │
-└── .env                         # secrets en local (non sur GitHub !)
+└── webapp/                    # Interface utilisateur (Streamlit)
+    ├── Dockerfile             # Dockerfile pour la webapp
+    ├── app.py                 # Application Streamlit (modifiée pour importer depuis common)
+    └── requirements.txt       # Dépendances (streamlit, requests, python-dotenv, openai, …)

@@ -1,4 +1,7 @@
+# api/requirements.txt
 fastapi
 uvicorn
 python-dotenv
 openai
+requests
+

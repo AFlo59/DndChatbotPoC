@@ -1,3 +1,4 @@
+# webapp/requirements.txt
 streamlit
 openai
 python-dotenv

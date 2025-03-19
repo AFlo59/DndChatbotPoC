@@ -2,8 +2,10 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copier les fichiers de l'application
-COPY app.py database_api.py openai_api.py requirements.txt /app/
+# Copier l'application Streamlit et les dépendances
+COPY webapp/app.py webapp/requirements.txt /app/
+# Copier le dossier commun, qui se trouve à la racine
+COPY common /app/common
 
 # Créer un environnement virtuel, mettre à jour pip et installer les dépendances
 RUN python -m venv /venv \
@@ -12,5 +14,4 @@ RUN python -m venv /venv \
 
 EXPOSE 8501
 
-# Utiliser l'interpréteur du virtualenv pour lancer Streamlit
 CMD ["/venv/bin/streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

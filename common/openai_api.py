@@ -1,3 +1,4 @@
+# common/openai_api.py
 import openai
 import os
 from dotenv import load_dotenv

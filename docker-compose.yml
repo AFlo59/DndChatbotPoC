@@ -1,3 +1,4 @@
+# docker-compose.yml
 services:
   database:
     build: ./database
@@ -9,8 +10,8 @@ services:
 
   api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./api/Dockerfile
     env_file:
       - .env
     ports:
@@ -20,11 +21,13 @@ services:
     restart: always
 
   webapp:
-    build: ./webapp
+    build:
+      context: .
+      dockerfile: ./webapp/Dockerfile
     env_file:
       - .env
     ports:
-      - "8501:8501"
+      - "8502:8501"   # L'app écoute sur 8501, accessible sur le port 8502 de l'hôte
     depends_on:
       - api
     restart: always
