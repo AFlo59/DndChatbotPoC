@@ -1,7 +1,6 @@
 # webapp/requirements.txt
-streamlit
-openai
-python-dotenv
+streamlit==1.22.0
+requests==2.28.2
+python-dotenv==1.0.0
 duckdb
 Pillow
-requests

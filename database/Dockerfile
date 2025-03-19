@@ -1,21 +1,15 @@
 # database/Dockerfile
-FROM alpine:latest
+FROM python:3.9-slim
 
-# Installer sqlite, Python3 et pip
-RUN apk add --no-cache sqlite python3 py3-pip
+WORKDIR /app
 
-# Créer un environnement virtuel
-RUN python3 -m venv /venv
+# Installer curl pour le healthcheck
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Mettre à jour pip dans l'environnement virtuel
-RUN /venv/bin/pip install --upgrade pip
+COPY init_db.py .
 
-# Installer python-dotenv dans le virtualenv
-RUN /venv/bin/pip install python-dotenv
+# sqlite3 est déjà inclus dans Python, pas besoin de l'installer
+RUN pip install --no-cache-dir python-dotenv
 
-WORKDIR /database
-COPY init_db.py /init_db.py
-
-# Utiliser le python du virtualenv pour lancer le script
-CMD ["/venv/bin/python", "/init_db.py"]
+# Le CMD est maintenant géré par docker-compose
 

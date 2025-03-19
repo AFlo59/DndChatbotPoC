@@ -10,3 +10,9 @@ sudo lsof -i :8000
 docker ps
 
 docker ps -a
+
+
+mkdir -p data
+
+docker-compose down -v
+docker-compose up --build

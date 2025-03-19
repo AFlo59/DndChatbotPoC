@@ -1,17 +1,17 @@
-FROM python:3.10-slim
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copier l'application Streamlit et les dépendances
-COPY webapp/app.py webapp/requirements.txt /app/
-# Copier le dossier commun, qui se trouve à la racine
-COPY common /app/common
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Créer un environnement virtuel, mettre à jour pip et installer les dépendances
-RUN python -m venv /venv \
-    && /venv/bin/pip install --upgrade pip \
-    && /venv/bin/pip install --no-cache-dir -r requirements.txt
+COPY app.py .
 
+# Créer un répertoire pour les fichiers communs
+RUN mkdir -p /app/common
+
+# Exposer le port sur lequel Streamlit va s'exécuter
 EXPOSE 8501
 
-CMD ["/venv/bin/streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Commande pour démarrer l'application Streamlit
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

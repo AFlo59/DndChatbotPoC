@@ -1,33 +1,57 @@
 # docker-compose.yml
+
 services:
   database:
     build: ./database
+    volumes:
+      - ./data:/app/data
     env_file:
       - .env
-    volumes:
-      - ./database/dnd_game.db:/app/dnd_game.db
-    restart: always
+    command: >
+      sh -c "python init_db.py && tail -f /dev/null"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/data/dnd_game.db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   api:
-    build:
-      context: .
-      dockerfile: ./api/Dockerfile
-    env_file:
-      - .env
+    build: ./api
     ports:
       - "8000:8000"
+    volumes:
+      - ./common:/app/common
+      - ./data:/data
     depends_on:
-      - database
-    restart: always
-
-  webapp:
-    build:
-      context: .
-      dockerfile: ./webapp/Dockerfile
+      database:
+        condition: service_healthy
     env_file:
       - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webapp:
+    build: ./webapp
     ports:
-      - "8502:8501"   # L'app écoute sur 8501, accessible sur le port 8502 de l'hôte
+      - "8502:8501"
+    volumes:
+      - ./common:/app/common
     depends_on:
-      - api
-    restart: always
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  sqlite-web:
+    image: coleifer/sqlite-web
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    command: sqlite_web -H 0.0.0.0 -p 8080 /data/dnd_game.db
+    depends_on:
+      database:
+        condition: service_healthy
