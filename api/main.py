@@ -439,6 +439,57 @@ async def get_user_campaigns(user_id: int):
         campaigns = [dict(row) for row in cursor.fetchall()]
         return campaigns
 
+@app.post("/chat/generate")
+async def generate_chat_response(request: dict):
+    """Génère une réponse pour le chat en utilisant OpenAI"""
+    if not openai_client:
+        raise HTTPException(status_code=503, detail="Service OpenAI non disponible")
+    
+    try:
+        messages = request["messages"]
+        character = request["character"]
+        campaign = request["campaign"]
+        
+        # Ajouter des informations de contexte si nécessaire
+        context = f"""
+        Campagne: {campaign['name']}
+        Personnage: {character['name']} ({character['race']} {character['class']} niveau {character['level']})
+        """
+        
+        # Générer la réponse
+        response = openai_client.chat_completion(messages)
+        
+        return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la génération: {str(e)}")
+
+@app.post("/chat/{session_id}/messages")
+async def save_chat_messages(session_id: str, messages: dict):
+    """Sauvegarde les messages du chat"""
+    with get_db() as db:
+        cursor = db.cursor()
+        
+        # Vérifier si la session existe
+        cursor.execute("SELECT id FROM chat_sessions WHERE id = ?", (session_id,))
+        session = cursor.fetchone()
+        
+        if not session:
+            # Créer une nouvelle session
+            cursor.execute(
+                "INSERT INTO chat_sessions (id, character_id) VALUES (?, ?)",
+                (session_id, st.session_state.character['id'])
+            )
+        
+        # Sauvegarder les messages
+        for message in messages["messages"]:
+            cursor.execute(
+                "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)",
+                (session_id, message["role"], message["content"])
+            )
+        
+        db.commit()
+        return {"status": "success"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

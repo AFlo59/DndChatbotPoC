@@ -260,9 +260,92 @@ def chat_page():
         )
         if res.status_code == 200 and res.json():
             st.session_state.character = res.json()
-            # Afficher l'interface de chat
+            
+            # Afficher les informations du personnage dans la sidebar
+            with st.sidebar:
+                with st.expander("📝 Info Personnage"):
+                    st.write(f"**{st.session_state.character['name']}**")
+                    st.write(f"*{st.session_state.character['race']} {st.session_state.character['class']}*")
+                    st.write(f"Niveau: {st.session_state.character['level']}")
+            
+            # Interface de chat
             st.write(f"Jouant {st.session_state.character['name']}")
-            # ... reste du code pour le chat ...
+            
+            # Initialiser la session de chat si nécessaire
+            if "messages" not in st.session_state:
+                st.session_state.messages = []
+                
+                # Message système initial
+                system_prompt = f"""Tu es un maître du jeu D&D qui guide les joueurs dans leur aventure.
+                Campagne: {st.session_state.campaign['name']}
+                Description: {st.session_state.campaign['description']}
+                
+                Personnage du joueur:
+                - Nom: {st.session_state.character['name']}
+                - Race: {st.session_state.character['race']}
+                - Classe: {st.session_state.character['class']}
+                - Niveau: {st.session_state.character['level']}
+                - Histoire: {st.session_state.character['background']}
+                
+                Commence l'aventure en décrivant la scène initiale."""
+                
+                st.session_state.messages.append({"role": "system", "content": system_prompt})
+            
+            # Afficher l'historique des messages
+            for message in st.session_state.messages:
+                if message["role"] != "system":
+                    with st.chat_message(message["role"]):
+                        st.write(message["content"])
+            
+            # Zone de saisie pour le joueur
+            if prompt := st.chat_input("Que souhaitez-vous faire ?"):
+                # Ajouter le message du joueur
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                
+                # Afficher le message du joueur
+                with st.chat_message("user"):
+                    st.write(prompt)
+                
+                # Appeler l'API pour générer la réponse
+                try:
+                    res = requests.post(
+                        f"{API_URL}/chat/generate",
+                        json={
+                            "messages": st.session_state.messages,
+                            "character": st.session_state.character,
+                            "campaign": st.session_state.campaign
+                        }
+                    )
+                    
+                    if res.status_code == 200:
+                        response = res.json()["response"]
+                        
+                        # Ajouter et afficher la réponse
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                        with st.chat_message("assistant"):
+                            st.write(response)
+                            
+                        # Sauvegarder l'historique
+                        requests.post(
+                            f"{API_URL}/chat/{st.session_state.session_id}/messages",
+                            json={
+                                "messages": [
+                                    {"role": "user", "content": prompt},
+                                    {"role": "assistant", "content": response}
+                                ]
+                            }
+                        )
+                    else:
+                        st.error("Erreur lors de la génération de la réponse")
+                except Exception as e:
+                    st.error(f"Erreur: {e}")
+            
+            # Bouton pour réinitialiser la conversation
+            if st.button("🔄 Nouvelle session"):
+                st.session_state.messages = []
+                st.session_state.session_id = str(uuid.uuid4())
+                st.rerun()
+                
         else:
             st.warning("Vous devez d'abord créer votre personnage pour cette campagne.")
             st.session_state.page = "new_character"
