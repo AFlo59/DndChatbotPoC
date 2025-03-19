@@ -80,11 +80,12 @@ def read_root():
     return {"message": "Bienvenue sur l'API du Chatbot D&D!"}
 
 @app.get("/characters")
-def get_all_characters(db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM characters")
-    characters = [dict(character) for character in cursor.fetchall()]
-    return characters
+async def get_all_characters():
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM characters")
+        characters = [dict(character) for character in cursor.fetchall()]
+        return characters
 
 @app.get("/characters/{character_id}")
 def get_character(character_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -98,38 +99,21 @@ def get_character(character_id: int, db: sqlite3.Connection = Depends(get_db)):
     return dict(character)
 
 @app.post("/characters")
-def create_character(character: Dict[str, Any], db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    
-    # Vérifier les champs requis
-    required_fields = ["name", "race", "class"]
-    for field in required_fields:
-        if field not in character:
-            raise HTTPException(status_code=400, detail=f"Le champ '{field}' est requis")
-    
-    # Préparer les champs et valeurs pour l'insertion
-    fields = []
-    values = []
-    placeholders = []
-    
-    for key, value in character.items():
-        fields.append(key)
-        values.append(value)
-        placeholders.append("?")
-    
-    # Construire et exécuter la requête d'insertion
-    query = f"INSERT INTO characters ({', '.join(fields)}) VALUES ({', '.join(placeholders)})"
-    cursor.execute(query, values)
-    db.commit()
-    
-    # Récupérer l'ID du personnage créé
-    character_id = cursor.lastrowid
-    
-    # Récupérer le personnage complet
-    cursor.execute("SELECT * FROM characters WHERE id = ?", (character_id,))
-    created_character = dict(cursor.fetchone())
-    
-    return created_character
+async def create_character(character: dict):
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute("""
+            INSERT INTO characters (name, race, class, level, strength, dexterity, 
+                                  constitution, intelligence, wisdom, charisma, background)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            character["name"], character["race"], character["class"], character["level"],
+            character["strength"], character["dexterity"], character["constitution"],
+            character["intelligence"], character["wisdom"], character["charisma"],
+            character.get("background", "")
+        ))
+        db.commit()
+        return {"id": cursor.lastrowid, **character}
 
 @app.get("/chat/{session_id}")
 def get_chat_history(session_id: str, db: sqlite3.Connection = Depends(get_db)):
@@ -241,30 +225,31 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 @app.post("/register")
-async def register(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
+async def register(user: UserCreate):
     hashed_password = hash_password(user.password)
-    cursor = db.cursor()
     
-    try:
-        cursor.execute(
-            "INSERT INTO users (username, password) VALUES (?, ?)",
-            (user.username, hashed_password)
-        )
-        db.commit()
-        
-        # Récupérer l'utilisateur créé
-        cursor.execute(
-            "SELECT id, username, is_admin FROM users WHERE username = ?",
-            (user.username,)
-        )
-        user_data = cursor.fetchone()
-        return {
-            "id": user_data[0],
-            "username": user_data[1],
-            "is_admin": bool(user_data[2])
-        }
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Nom d'utilisateur déjà pris")
+    with get_db() as db:
+        cursor = db.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
+                (user.username, hashed_password, False)
+            )
+            db.commit()
+            
+            # Récupérer l'utilisateur créé
+            cursor.execute(
+                "SELECT id, username, is_admin FROM users WHERE username = ?",
+                (user.username,)
+            )
+            user_data = cursor.fetchone()
+            return {
+                "id": user_data[0],
+                "username": user_data[1],
+                "is_admin": bool(user_data[2])
+            }
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="Nom d'utilisateur déjà pris")
 
 @app.post("/authenticate")
 async def login(user: UserLogin):

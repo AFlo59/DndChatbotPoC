@@ -1,5 +1,12 @@
 docker-compose up --build
 
+docker-compose down
+docker system prune -af --volumes
+sudo rm -rf data
+mkdir data
+sudo chown -R $USER:$USER data
+docker-compose up --build
+
 
 docker-compose down --volumes
 
