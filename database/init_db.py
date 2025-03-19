@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS characters (
     name TEXT NOT NULL,
     race TEXT NOT NULL,
     class TEXT NOT NULL,
+    campaign_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     level INTEGER DEFAULT 1,
     strength INTEGER DEFAULT 10,
     dexterity INTEGER DEFAULT 10,
@@ -60,7 +62,9 @@ CREATE TABLE IF NOT EXISTS characters (
     wisdom INTEGER DEFAULT 10,
     charisma INTEGER DEFAULT 10,
     background TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS chat_sessions (

@@ -80,6 +80,21 @@ class Campaign(BaseModel):
     description: str
     user_id: int
 
+class Character(BaseModel):
+    name: str
+    race: str
+    class_name: str
+    campaign_id: int
+    user_id: int
+    level: int = 1
+    strength: int = 10
+    dexterity: int = 10
+    constitution: int = 10
+    intelligence: int = 10
+    wisdom: int = 10
+    charisma: int = 10
+    background: str = ""
+
 @app.get("/")
 def read_root():
     return {"message": "Bienvenue sur l'API du Chatbot D&D!"}
@@ -103,22 +118,39 @@ def get_character(character_id: int, db: sqlite3.Connection = Depends(get_db)):
     
     return dict(character)
 
-@app.post("/characters")
-async def create_character(character: dict):
+@app.get("/characters/campaign/{campaign_id}/user/{user_id}")
+async def get_character_for_campaign(campaign_id: int, user_id: int):
+    """Récupère le personnage d'un utilisateur pour une campagne spécifique"""
     with get_db() as db:
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO characters (name, race, class, level, strength, dexterity, 
-                                  constitution, intelligence, wisdom, charisma, background)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            SELECT * FROM characters 
+            WHERE campaign_id = ? AND user_id = ?
+        """, (campaign_id, user_id))
+        character = cursor.fetchone()
+        if character:
+            return dict(character)
+        return None
+
+@app.post("/characters")
+async def create_character(character: Character):
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute("""
+            INSERT INTO characters (
+                name, race, class, campaign_id, user_id,
+                level, strength, dexterity, constitution,
+                intelligence, wisdom, charisma, background
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            character["name"], character["race"], character["class"], character["level"],
-            character["strength"], character["dexterity"], character["constitution"],
-            character["intelligence"], character["wisdom"], character["charisma"],
-            character.get("background", "")
+            character.name, character.race, character.class_name,
+            character.campaign_id, character.user_id,
+            character.level, character.strength, character.dexterity,
+            character.constitution, character.intelligence,
+            character.wisdom, character.charisma, character.background
         ))
         db.commit()
-        return {"id": cursor.lastrowid, **character}
+        return {"id": cursor.lastrowid, **character.dict()}
 
 @app.get("/chat/{session_id}")
 def get_chat_history(session_id: str, db: sqlite3.Connection = Depends(get_db)):
