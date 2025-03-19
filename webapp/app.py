@@ -239,62 +239,56 @@ def admin_page():
             st.error(f"Erreur lors de la récupération des statistiques: {e}")
 
 def chat_page():
-    if not st.session_state.user or not st.session_state.campaign:
+    if not st.session_state.campaign:
+        st.warning("Veuillez d'abord sélectionner ou créer une campagne")
         return
-
+    
     st.title(f"🎲 Campagne: {st.session_state.campaign['name']}")
     
     try:
-        # Vérifier si le personnage existe
-        res = requests.get(
-            f"{API_URL}/characters/campaign/{st.session_state.campaign['id']}/user/{st.session_state.user['id']}"
-        )
+        # Récupérer le personnage de l'utilisateur pour cette campagne
+        if not st.session_state.get('character'):
+            res = requests.get(
+                f"{API_URL}/characters/campaign/{st.session_state.campaign['id']}/user/{st.session_state.user['id']}"
+            )
+            if res.status_code == 200:
+                st.session_state.character = res.json()
+                st.rerun()  # Recharger la page avec le personnage
         
-        if res.status_code == 200 and res.json():
-            st.session_state.character = res.json()
-            
+        if st.session_state.get('character'):
             # Afficher les infos du personnage
             with st.sidebar:
-                with st.expander("📝 Info Personnage"):
+                with st.expander("📝 Info Personnage", expanded=True):
                     st.write(f"**{st.session_state.character['name']}**")
-                    st.write(f"*{st.session_state.character['race']} {st.session_state.character['class']}*")
+                    st.write(f"*{st.session_state.character['race']} {st.session_state.character['class_name']}*")
                     st.write(f"Niveau: {st.session_state.character['level']}")
             
-            # Initialiser la session si nécessaire
-            if "messages" not in st.session_state:
-                st.session_state.messages = []
-                system_prompt = f"""Tu es un maître du jeu D&D qui guide les joueurs dans leur aventure.
+            # Initialiser le chat si ce n'est pas déjà fait
+            if not st.session_state.messages:
+                st.info("Initialisation du chat...")
+                st.session_state.messages = [{"role": "system", "content": ""}]
                 
-                Campagne: {st.session_state.campaign['name']}
-                Description: {st.session_state.campaign['description']}
-                
-                Personnage du joueur:
-                - Nom: {st.session_state.character['name']}
-                - Race: {st.session_state.character['race']}
-                - Classe: {st.session_state.character['class']}
-                - Niveau: {st.session_state.character['level']}
-                - Histoire: {st.session_state.character['background']}
-                
-                Commence l'aventure en décrivant la scène initiale."""
-                
-                st.session_state.messages = [{"role": "system", "content": system_prompt}]
-                
-                # Générer le message initial
                 try:
                     res = requests.post(
                         f"{API_URL}/chat/generate",
                         json={
                             "messages": st.session_state.messages,
                             "character": st.session_state.character,
-                            "campaign": st.session_state.campaign
+                            "campaign": st.session_state.campaign,
+                            "is_new_session": True,
+                            "session_id": st.session_state.session_id
                         }
                     )
                     
                     if res.status_code == 200:
                         intro_message = res.json()["response"]
                         st.session_state.messages.append({"role": "assistant", "content": intro_message})
+                        st.rerun()  # Recharger pour afficher le message
+                    else:
+                        st.error(f"Erreur lors de l'initialisation du chat: {res.text}")
                 except Exception as e:
-                    st.error(f"Erreur d'initialisation: {e}")
+                    st.error(f"Erreur d'initialisation: {str(e)}")
+                    st.error("Détails de l'erreur:", e)
             
             # Afficher l'historique
             for message in st.session_state.messages:
@@ -352,7 +346,7 @@ def character_creation_page():
                 "Humain", "Elfe", "Nain", "Halfelin", "Gnome", 
                 "Demi-Elfe", "Demi-Orc", "Tiefling", "Dragonborn"
             ])
-            character_class = st.selectbox("Classe", [
+            class_name = st.selectbox("Classe", [
                 "Guerrier", "Magicien", "Voleur", "Clerc", "Ranger",
                 "Paladin", "Barbare", "Barde", "Druide", "Moine", "Sorcier"
             ])
@@ -377,10 +371,10 @@ def character_creation_page():
                 character_data = {
                     "name": name,
                     "race": race,
-                    "class_name": character_class,
+                    "class_name": class_name,
+                    "level": level,
                     "campaign_id": st.session_state.campaign['id'],
                     "user_id": st.session_state.user['id'],
-                    "level": level,
                     "strength": strength,
                     "dexterity": dexterity,
                     "constitution": constitution,

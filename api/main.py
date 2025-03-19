@@ -84,9 +84,9 @@ class Character(BaseModel):
     name: str
     race: str
     class_name: str
+    level: int = 1
     campaign_id: int
     user_id: int
-    level: int = 1
     strength: int = 10
     dexterity: int = 10
     constitution: int = 10
@@ -94,6 +94,26 @@ class Character(BaseModel):
     wisdom: int = 10
     charisma: int = 10
     background: str = ""
+
+    class Config:
+        allow_population_by_field_name = True
+        json_schema_extra = {
+            "example": {
+                "name": "Thug",
+                "race": "Nain",
+                "class_name": "Voleur",
+                "level": 1,
+                "campaign_id": 1,
+                "user_id": 1,
+                "strength": 14,
+                "dexterity": 16,
+                "constitution": 12,
+                "intelligence": 8,
+                "wisdom": 8,
+                "charisma": 8,
+                "background": "Un jeune nain qui passe son temps à voler pour survivre"
+            }
+        }
 
 @app.get("/")
 def read_root():
@@ -481,14 +501,46 @@ async def generate_chat_response(request: dict):
         character = request["character"]
         campaign = request["campaign"]
         is_new_session = request.get("is_new_session", False)
+        session_id = request.get("session_id", str(uuid.uuid4()))
         
         # Ajuster le contexte selon que c'est une nouvelle session ou non
         if is_new_session:
-            # Ajouter des instructions spécifiques pour l'introduction
-            messages[0]["content"] += "\nGénère une introduction engageante qui plonge le joueur dans l'action."
+            system_prompt = f"""Tu es un maître du jeu D&D qui guide les joueurs dans leur aventure.
+            
+            Campagne: {campaign['name']}
+            Description: {campaign.get('description', 'Une aventure épique')}
+            
+            Personnage du joueur:
+            - Nom: {character['name']}
+            - Race: {character['race']}
+            - Classe: {character['class_name']}
+            - Niveau: {character['level']}
+            - Force: {character['strength']}
+            - Dextérité: {character['dexterity']}
+            - Constitution: {character['constitution']}
+            - Intelligence: {character['intelligence']}
+            - Sagesse: {character['wisdom']}
+            - Charisme: {character['charisma']}
+            - Histoire: {character.get('background', 'Un aventurier mystérieux')}
+            
+            Commence l'aventure en décrivant la scène initiale de manière immersive."""
+            
+            messages[0]["content"] = system_prompt
         
         # Générer la réponse
         response = openai_client.chat_completion(messages)
+        
+        # Sauvegarder le message dans la base de données
+        conn = sqlite3.connect('/data/dnd_game.db')
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)",
+                (session_id, "assistant", response)
+            )
+            conn.commit()
+        finally:
+            conn.close()
         
         return {"response": response}
     except Exception as e:
