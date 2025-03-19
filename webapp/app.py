@@ -10,13 +10,9 @@ import pandas as pd
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer depuis common
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from common.database_api import DatabaseClient
 
 # Utiliser le nom du service Docker au lieu de localhost
 API_URL = os.getenv("API_URL", "http://api:8000")  # Le service s'appelle 'api' dans docker-compose
-
-# Initialisation du client pour l'API
-db_client = DatabaseClient(API_URL)
 
 # Configuration de la page Streamlit
 st.set_page_config(
@@ -51,9 +47,17 @@ def sidebar_content():
     with st.sidebar:
         st.title("🐉 D&D Chatbot")
         
+        # Si l'utilisateur n'est pas connecté, ne rien afficher
         if not st.session_state.user:
             return
         
+        # Bouton retour
+        if st.session_state.page != "chat":
+            if st.button("← Retour"):
+                st.session_state.page = "chat"
+                st.rerun()
+        
+        # Si l'utilisateur est admin, afficher le menu admin
         if st.session_state.user.get('is_admin'):
             page = st.selectbox("Navigation", ["Chat", "Panel Admin"])
             if page == "Panel Admin":
@@ -62,35 +66,40 @@ def sidebar_content():
             else:
                 st.session_state.page = "chat"
         
+        # Gestion des campagnes
         if st.session_state.page == "chat":
-            if not st.session_state.campaign:
-                st.subheader("Nouvelle Campagne")
-                if st.button("Créer une campagne"):
-                    st.session_state.page = "new_campaign"
-                    st.rerun()
-            else:
-                st.subheader("Sélection du personnage")
-                if st.button("Rafraîchir la liste"):
-                    try:
-                        st.session_state.characters = db_client.get_all_characters()
-                        st.success("Liste mise à jour!")
-                    except Exception as e:
-                        st.error(f"Erreur: {e}")
-                
-                if st.session_state.characters:
-                    character_options = ["Sélectionner..."] + [
-                        f"{char['name']} ({char['race']} {char['class']})" 
-                        for char in st.session_state.characters
-                    ]
-                    selected = st.selectbox("Personnage", character_options)
+            st.subheader("Campagnes")
+            
+            # Récupérer les campagnes de l'utilisateur
+            try:
+                res = requests.get(f"{API_URL}/campaigns/{st.session_state.user['id']}")
+                if res.status_code == 200:
+                    campaigns = res.json()
                     
-                    if selected != "Sélectionner...":
-                        idx = character_options.index(selected) - 1
-                        show_character_details(st.session_state.characters[idx])
-                
-                if st.button("Nouveau personnage"):
-                    st.session_state.page = "new_character"
-                    st.rerun()
+                    # Sélection de campagne
+                    if campaigns:
+                        campaign_names = ["Sélectionner une campagne..."] + [
+                            c['name'] for c in campaigns
+                        ]
+                        selected = st.selectbox("Vos campagnes", campaign_names)
+                        
+                        if selected != "Sélectionner une campagne...":
+                            # Trouver la campagne sélectionnée
+                            campaign = next(c for c in campaigns if c['name'] == selected)
+                            if st.button("Rejoindre cette campagne"):
+                                st.session_state.campaign = campaign
+                                st.rerun()
+                    
+                    # Toujours afficher le bouton pour créer une nouvelle campagne
+                    if st.button("Créer une nouvelle campagne"):
+                        st.session_state.campaign = None
+                        st.session_state.page = "new_campaign"
+                        st.rerun()
+                    
+                else:
+                    st.error("Erreur lors de la récupération des campagnes")
+            except Exception as e:
+                st.error(f"Erreur: {e}")
 
 def new_campaign_page():
     st.title("🎲 Nouvelle Campagne")
@@ -102,14 +111,21 @@ def new_campaign_page():
         
         if submitted and campaign_name:
             try:
-                campaign = db_client.create_campaign({
-                    "name": campaign_name,
-                    "description": campaign_desc,
-                    "user_id": st.session_state.user["id"]
-                })
-                st.session_state.campaign = campaign
-                st.session_state.page = "new_character"
-                st.rerun()
+                res = requests.post(
+                    f"{API_URL}/campaigns",
+                    json={
+                        "name": campaign_name,
+                        "description": campaign_desc,
+                        "user_id": st.session_state.user["id"]
+                    }
+                )
+                
+                if res.status_code == 200:
+                    st.session_state.campaign = res.json()
+                    st.session_state.page = "new_character"
+                    st.rerun()
+                else:
+                    st.error(f"Erreur lors de la création: {res.text}")
             except Exception as e:
                 st.error(f"Erreur: {e}")
 
@@ -222,46 +238,24 @@ def chat_page():
         st.rerun()
         return
 
-    st.title("🐉 D&D Chatbot")
+    # Si pas de campagne, afficher un message
+    if not st.session_state.campaign:
+        st.info("👋 Bienvenue dans D&D Chatbot!")
+        st.write("Pour commencer une partie, créez une nouvelle campagne en utilisant le bouton dans la barre latérale.")
+        return
+
+    st.title(f"🎲 Campagne: {st.session_state.campaign['name']}")
     
-    # Sidebar pour la sélection du personnage et les options
-    with st.sidebar:
-        st.subheader("Sélection du personnage")
-        
-        # Bouton pour rafraîchir la liste des personnages
-        if st.button("Rafraîchir la liste"):
-            try:
-                st.session_state.characters = db_client.get_all_characters()
-                st.success("Liste des personnages mise à jour!")
-            except Exception as e:
-                st.error(f"Erreur lors de la récupération des personnages: {e}")
-        
-        # Sélection du personnage
-        character_options = ["Sélectionner un personnage..."] + [
-            f"{char['name']} ({char['race']} {char['class']})" 
-            for char in st.session_state.characters
-        ]
-        selected_character = st.selectbox("Choisir un personnage", character_options)
-        
-        if selected_character != "Sélectionner un personnage...":
-            # Trouver l'ID du personnage sélectionné
-            selected_index = character_options.index(selected_character) - 1  # -1 pour compenser l'option par défaut
-            st.session_state.character_id = st.session_state.characters[selected_index]["id"]
-            
-            # Afficher les détails du personnage
-            character = st.session_state.characters[selected_index]
-            st.subheader("Détails du personnage")
-            st.write(f"**Niveau:** {character['level']}")
-            st.write(f"**Force:** {character['strength']}")
-            st.write(f"**Dextérité:** {character['dexterity']}")
-            st.write(f"**Constitution:** {character['constitution']}")
-            st.write(f"**Intelligence:** {character['intelligence']}")
-            st.write(f"**Sagesse:** {character['wisdom']}")
-            st.write(f"**Charisme:** {character['charisma']}")
-            
-            if "background" in character and character["background"]:
-                st.write("**Histoire:**")
-                st.write(character["background"])
+    # Si pas de personnage, rediriger vers la création
+    if not st.session_state.character:
+        st.warning("Vous devez d'abord créer votre personnage pour cette campagne.")
+        st.session_state.page = "new_character"
+        st.rerun()
+        return
+
+    # Afficher l'interface de chat
+    st.write(f"Jouant {st.session_state.character['name']}")
+    # ... reste du code pour le chat ...
 
 # À la fin du fichier
 sidebar_content()

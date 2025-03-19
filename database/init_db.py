@@ -32,13 +32,11 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS campaigns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    campaign_name TEXT,
-    character_info TEXT,  -- JSON infos personnage
-    campaign_info TEXT,   -- JSON contexte initial
-    session_context TEXT, -- Historique complet
+    name TEXT NOT NULL,
+    description TEXT,
+    user_id INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS game_sessions (

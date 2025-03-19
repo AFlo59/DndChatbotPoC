@@ -75,6 +75,11 @@ class ChatMessageResponse(BaseModel):
     timestamp: datetime
     username: Optional[str]
 
+class Campaign(BaseModel):
+    name: str
+    description: str
+    user_id: int
+
 @app.get("/")
 def read_root():
     return {"message": "Bienvenue sur l'API du Chatbot D&D!"}
@@ -367,6 +372,40 @@ def admin_required(db: sqlite3.Connection = Depends(get_db)):
             raise HTTPException(status_code=401, detail="Token invalide")
     
     return check_admin
+
+@app.post("/campaigns")
+async def create_campaign(campaign: Campaign):
+    with get_db() as db:
+        cursor = db.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO campaigns (name, description, user_id)
+                VALUES (?, ?, ?)
+            """, (campaign.name, campaign.description, campaign.user_id))
+            db.commit()
+            
+            campaign_id = cursor.lastrowid
+            return {
+                "id": campaign_id,
+                "name": campaign.name,
+                "description": campaign.description,
+                "user_id": campaign.user_id
+            }
+        except sqlite3.Error as e:
+            raise HTTPException(status_code=500, detail=f"Erreur de base de données: {str(e)}")
+
+@app.get("/campaigns/{user_id}")
+async def get_user_campaigns(user_id: int):
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT id, name, description, created_at 
+            FROM campaigns 
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+        """, (user_id,))
+        campaigns = [dict(row) for row in cursor.fetchall()]
+        return campaigns
 
 if __name__ == "__main__":
     import uvicorn
