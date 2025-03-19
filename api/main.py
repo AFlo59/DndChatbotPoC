@@ -136,21 +136,29 @@ async def get_character_for_campaign(campaign_id: int, user_id: int):
 async def create_character(character: Character):
     with get_db() as db:
         cursor = db.cursor()
-        cursor.execute("""
-            INSERT INTO characters (
-                name, race, class, campaign_id, user_id,
-                level, strength, dexterity, constitution,
-                intelligence, wisdom, charisma, background
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            character.name, character.race, character.class_name,
-            character.campaign_id, character.user_id,
-            character.level, character.strength, character.dexterity,
-            character.constitution, character.intelligence,
-            character.wisdom, character.charisma, character.background
-        ))
-        db.commit()
-        return {"id": cursor.lastrowid, **character.dict()}
+        try:
+            cursor.execute("""
+                INSERT INTO characters (
+                    name, race, class_name, level, campaign_id, user_id,
+                    strength, dexterity, constitution, intelligence, wisdom, charisma, background
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                character.name, character.race, character.class_name, character.level,
+                character.campaign_id, character.user_id,
+                character.strength, character.dexterity, character.constitution,
+                character.intelligence, character.wisdom, character.charisma,
+                character.background
+            ))
+            db.commit()
+            
+            # Récupérer le personnage créé
+            cursor.execute("""
+                SELECT * FROM characters WHERE id = last_insert_rowid()
+            """)
+            new_character = cursor.fetchone()
+            return dict(new_character)
+        except sqlite3.Error as e:
+            raise HTTPException(status_code=500, detail=f"Erreur lors de la création: {str(e)}")
 
 @app.get("/chat/{session_id}")
 def get_chat_history(session_id: str, db: sqlite3.Connection = Depends(get_db)):
@@ -257,57 +265,55 @@ def generate_scenario(context: Dict[str, Any]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la génération: {str(e)}")
 
-# Fonction utilitaire pour hacher les mots de passe
+# Fonction pour hasher les mots de passe
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 @app.post("/register")
-async def register(user: UserCreate):
-    hashed_password = hash_password(user.password)
-    
+async def register(user_data: UserCreate):
     with get_db() as db:
         cursor = db.cursor()
         try:
+            # Hash le mot de passe avant de l'enregistrer
+            hashed_password = hash_password(user_data.password)
             cursor.execute(
                 "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
-                (user.username, hashed_password, False)
+                (user_data.username, hashed_password, False)
             )
             db.commit()
             
-            # Récupérer l'utilisateur créé
+            # Récupérer l'utilisateur créé pour confirmation
             cursor.execute(
                 "SELECT id, username, is_admin FROM users WHERE username = ?",
-                (user.username,)
+                (user_data.username,)
             )
-            user_data = cursor.fetchone()
+            user = cursor.fetchone()
             return {
-                "id": user_data[0],
-                "username": user_data[1],
-                "is_admin": bool(user_data[2])
+                "id": user['id'],
+                "username": user['username'],
+                "is_admin": bool(user['is_admin'])
             }
         except sqlite3.IntegrityError:
-            raise HTTPException(status_code=400, detail="Nom d'utilisateur déjà pris")
+            raise HTTPException(status_code=400, detail="Ce nom d'utilisateur est déjà utilisé")
 
 @app.post("/authenticate")
-async def login(user: UserLogin):
-    hashed_password = hash_password(user.password)
-    
+async def login(user_data: UserLogin):
     with get_db() as db:
         cursor = db.cursor()
+        # Hash le mot de passe pour la comparaison
+        hashed_password = hash_password(user_data.password)
         cursor.execute(
             "SELECT id, username, is_admin FROM users WHERE username = ? AND password = ?",
-            (user.username, hashed_password)
+            (user_data.username, hashed_password)
         )
-        user_data = cursor.fetchone()
-    
-    if user_data is None:
+        user = cursor.fetchone()
+        if user:
+            return {
+                "id": user['id'],
+                "username": user['username'],
+                "is_admin": bool(user['is_admin'])
+            }
         raise HTTPException(status_code=401, detail="Identifiants invalides")
-    
-    return {
-        "id": user_data[0],
-        "username": user_data[1],
-        "is_admin": bool(user_data[2])
-    }
 
 @app.get("/admin/users", response_model=List[UserResponse])
 async def get_users(db: sqlite3.Connection = Depends(get_db)):
@@ -439,6 +445,31 @@ async def get_user_campaigns(user_id: int):
         campaigns = [dict(row) for row in cursor.fetchall()]
         return campaigns
 
+@app.get("/chat/last-session/{campaign_id}/{character_id}")
+async def get_last_session(campaign_id: int, character_id: int):
+    """Récupère la dernière session pour une campagne et un personnage"""
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT cs.id, cs.created_at,
+                   GROUP_CONCAT(cm.content, ' | ') as messages
+            FROM chat_sessions cs
+            JOIN chat_messages cm ON cs.id = cm.session_id
+            WHERE cs.character_id = ?
+            GROUP BY cs.id
+            ORDER BY cs.created_at DESC
+            LIMIT 1
+        """, (character_id,))
+        
+        session = cursor.fetchone()
+        if session:
+            # Générer un résumé de la dernière session
+            messages = session['messages'].split(' | ')
+            summary = f"Dernière session le {session['created_at']}. "
+            summary += "Voici un bref résumé: " + " ".join(messages[-3:])  # Derniers messages
+            return {"id": session['id'], "summary": summary}
+        return None
+
 @app.post("/chat/generate")
 async def generate_chat_response(request: dict):
     """Génère une réponse pour le chat en utilisant OpenAI"""
@@ -449,12 +480,12 @@ async def generate_chat_response(request: dict):
         messages = request["messages"]
         character = request["character"]
         campaign = request["campaign"]
+        is_new_session = request.get("is_new_session", False)
         
-        # Ajouter des informations de contexte si nécessaire
-        context = f"""
-        Campagne: {campaign['name']}
-        Personnage: {character['name']} ({character['race']} {character['class']} niveau {character['level']})
-        """
+        # Ajuster le contexte selon que c'est une nouvelle session ou non
+        if is_new_session:
+            # Ajouter des instructions spécifiques pour l'introduction
+            messages[0]["content"] += "\nGénère une introduction engageante qui plonge le joueur dans l'action."
         
         # Générer la réponse
         response = openai_client.chat_completion(messages)

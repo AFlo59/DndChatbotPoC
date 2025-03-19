@@ -1,32 +1,36 @@
 # docker-compose.yml
 
+
 services:
   database:
     build: ./database
     volumes:
-      - ./data:/app/data
-    env_file:
-      - .env
-    command: >
-      sh -c "python init_db.py && tail -f /dev/null"
+      - ./data:/data
+    environment:
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - USER_USERNAME=${USER_USERNAME}
+      - USER_PASSWORD=${USER_PASSWORD}
     healthcheck:
-      test: ["CMD", "test", "-f", "/app/data/dnd_game.db"]
+      test: ["CMD", "test", "-f", "/data/dnd_game.db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   api:
-    build: ./api
+    build: 
+      context: .
+      dockerfile: api/Dockerfile
+    volumes:
+      - ./data:/data
+      - ./common:/app/common
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     ports:
       - "8000:8000"
-    volumes:
-      - ./common:/app/common
-      - ./data:/data
     depends_on:
       database:
         condition: service_healthy
-    env_file:
-      - .env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
       interval: 10s
@@ -34,25 +38,27 @@ services:
       retries: 5
 
   webapp:
-    build: ./webapp
-    ports:
-      - "8502:8502"
+    build: 
+      context: .
+      dockerfile: webapp/Dockerfile
     volumes:
       - ./common:/app/common
+    ports:
+      - "8502:8502"
+    environment:
+      - API_URL=${API_URL}
     depends_on:
       api:
         condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      - API_URL=http://api:8000
 
   sqlite-web:
     image: coleifer/sqlite-web
-    ports:
-      - "8080:8080"
     volumes:
       - ./data:/data
+    ports:
+      - "8080:8080"
+    environment:
+      - SQLITE_DATABASE=database.db
     command: sqlite_web -H 0.0.0.0 -p 8080 /data/dnd_game.db
     depends_on:
       database:

@@ -40,18 +40,28 @@ def generate_pixel_art(prompt):
 class OpenAIClient:
     """Fonctions pour interagir avec l'API OpenAI."""
     
-    def __init__(self, api_key: str = None):
+    def __init__(self):
         """Initialise le client avec la clé API OpenAI."""
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("La clé API OpenAI n'est pas définie")
+            raise ValueError("OPENAI_API_KEY non trouvée dans .env")
         openai.api_key = self.api_key
+
+    def chat_completion(self, messages):
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                temperature=0.8
+            )
+            return response.choices[0].message["content"]
+        except Exception as e:
+            raise Exception(f"Erreur OpenAI: {str(e)}")
     
-    def generate_response(self, 
-                          messages: List[Dict[str, str]], 
-                          model: str = "gpt-3.5-turbo",
-                          temperature: float = 0.7,
-                          max_tokens: int = 1000) -> str:
+    def generate_response(self, messages: List[Dict[str, str]], 
+                        model: str = "gpt-3.5-turbo",
+                        temperature: float = 0.7,
+                        max_tokens: int = 1000) -> str:
         """
         Génère une réponse à partir d'une liste de messages.
         
@@ -71,7 +81,7 @@ class OpenAIClient:
                 temperature=temperature,
                 max_tokens=max_tokens
             )
-            return response.choices[0].message.content
+            return response.choices[0].message["content"]
         except Exception as e:
             print(f"Erreur lors de l'appel à OpenAI: {e}")
             return f"Désolé, une erreur s'est produite: {str(e)}"
@@ -106,7 +116,7 @@ class OpenAIClient:
             {"role": "user", "content": prompt}
         ]
         
-        return self.generate_response(messages)
+        return self.chat_completion(messages)
     
     def generate_dnd_scenario(self, context: Dict[str, Any]) -> str:
         """
@@ -132,4 +142,4 @@ class OpenAIClient:
             {"role": "user", "content": prompt}
         ]
         
-        return self.generate_response(messages)
+        return self.chat_completion(messages)

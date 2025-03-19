@@ -8,7 +8,7 @@ RUN apt-get update && \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY webapp/requirements.txt .
 
 # Installer d'abord numpy
 RUN pip install --no-cache-dir numpy==1.23.5
@@ -16,13 +16,11 @@ RUN pip install --no-cache-dir numpy==1.23.5
 # Puis installer le reste des dépendances
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
-
-# Créer un répertoire pour les fichiers communs
-RUN mkdir -p /app/common
+COPY webapp/app.py .
+COPY common/ /app/common/
 
 # Exposer le port sur lequel Streamlit va s'exécuter
 EXPOSE 8502
 
 # Commande pour démarrer l'application Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8502", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.port", "8502", "--server.address", "0.0.0.0"]

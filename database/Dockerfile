@@ -11,5 +11,6 @@ COPY init_db.py .
 # sqlite3 est déjà inclus dans Python, pas besoin de l'installer
 RUN pip install --no-cache-dir python-dotenv
 
-# Le CMD est maintenant géré par docker-compose
+# Utiliser un script shell pour initialiser la DB et garder le conteneur actif
+CMD python init_db.py && tail -f /dev/null
 
